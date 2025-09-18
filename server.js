@@ -7,6 +7,11 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+// Trust proxy for HTTPS deployment
+if (process.env.NODE_ENV === 'production') {
+    app.set('trust proxy', 1);
+}
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -157,7 +162,13 @@ app.post('/submit-feedback', async (req, res) => {
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-    res.json({ status: 'Server is running!', timestamp: new Date().toISOString() });
+    res.json({ 
+        status: 'Server is running!', 
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development',
+        port: PORT,
+        uptime: process.uptime()
+    });
 });
 
 // Get feedback data (optional - for viewing data)
