@@ -27,13 +27,14 @@ const excelFilePath = path.join(__dirname, 'feedback_data.xlsx');
 async function createExcelFileIfNotExists() {
     try {
         if (!fs.existsSync(excelFilePath)) {
+            console.log('Creating new Excel file...');
             const workbook = new ExcelJS.Workbook();
             const worksheet = workbook.addWorksheet('Feedback Data');
             
-            // Create headers for the feedback data
+            // Create headers for the feedback data - ensure exact match with append function
             const headers = [
                 'Submission Date',
-                'Submission Time',
+                'Submission Time', 
                 'Liked Most',
                 'Planning to Buy',
                 'Jewel Types',
@@ -42,30 +43,41 @@ async function createExcelFileIfNotExists() {
                 'WhatsApp Number'
             ];
             
-            // Add headers to worksheet
-            worksheet.addRow(headers);
+            console.log('Adding headers:', headers);
+            
+            // Add headers to worksheet as first row
+            const headerRow = worksheet.addRow(headers);
             
             // Style the header row
-            const headerRow = worksheet.getRow(1);
-            headerRow.font = { bold: true };
+            headerRow.font = { bold: true, color: { argb: 'FF000000' } };
             headerRow.fill = {
                 type: 'pattern',
                 pattern: 'solid',
                 fgColor: { argb: 'FFE6E6E6' }
             };
             
-            // Auto-fit columns
-            headers.forEach((header, index) => {
-                worksheet.getColumn(index + 1).width = Math.max(15, header.length + 2);
-            });
+            // Set column widths
+            worksheet.columns = [
+                { width: 15 }, // Submission Date
+                { width: 15 }, // Submission Time
+                { width: 20 }, // Liked Most
+                { width: 15 }, // Planning to Buy
+                { width: 20 }, // Jewel Types
+                { width: 12 }, // Experience Rating
+                { width: 20 }, // Name
+                { width: 18 }  // WhatsApp Number
+            ];
             
             // Write the file
             await workbook.xlsx.writeFile(excelFilePath);
             
-            console.log('Excel file created successfully!');
+            console.log('Excel file created successfully at:', excelFilePath);
+        } else {
+            console.log('Excel file already exists at:', excelFilePath);
         }
     } catch (error) {
         console.error('Error creating Excel file:', error.message);
+        console.error('Full error:', error);
         console.warn('Note: Excel file operations may not work on some hosting platforms.');
         console.warn('Consider using a database for production deployments.');
     }
@@ -74,6 +86,8 @@ async function createExcelFileIfNotExists() {
 // Function to append data to Excel file
 async function appendToExcel(data) {
     try {
+        console.log('Appending data to Excel:', data);
+        
         // Check if file exists before reading
         if (!fs.existsSync(excelFilePath)) {
             console.log('Excel file not found, creating new one...');
@@ -83,22 +97,55 @@ async function appendToExcel(data) {
         // Read existing workbook
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.readFile(excelFilePath);
-        const worksheet = workbook.getWorksheet('Feedback Data');
+        let worksheet = workbook.getWorksheet('Feedback Data');
         
         if (!worksheet) {
-            throw new Error('Feedback Data worksheet not found in Excel file');
+            console.log('Worksheet not found, creating new one...');
+            worksheet = workbook.addWorksheet('Feedback Data');
+            
+            // Add headers if worksheet is new
+            const headers = [
+                'Submission Date',
+                'Submission Time',
+                'Liked Most', 
+                'Planning to Buy',
+                'Jewel Types',
+                'Experience Rating',
+                'Name',
+                'WhatsApp Number'
+            ];
+            worksheet.addRow(headers);
         }
         
         // Prepare new row data
         const now = new Date();
-        const dateStr = now.toLocaleDateString();
-        const timeStr = now.toLocaleTimeString();
+        const dateStr = now.toLocaleDateString('en-IN'); // Indian date format
+        const timeStr = now.toLocaleTimeString('en-IN'); // Indian time format
         
         // Format arrays as comma-separated strings
-        const likedMost = Array.isArray(data.liked_most) ? data.liked_most.join(', ') : data.liked_most || '';
-        const jewelTypes = Array.isArray(data.jewel_types) ? data.jewel_types.join(', ') : data.jewel_types || '';
+        const likedMost = Array.isArray(data.liked_most) ? data.liked_most.join(', ') : (data.liked_most || '');
+        const jewelTypes = Array.isArray(data.jewel_types) ? data.jewel_types.join(', ') : (data.jewel_types || '');
         
-        const newRowData = [
+        // Create row data as an object for better control
+        const rowData = {
+            'Submission Date': dateStr,
+            'Submission Time': timeStr,
+            'Liked Most': likedMost,
+            'Planning to Buy': data.planning_to_buy || '',
+            'Jewel Types': jewelTypes,
+            'Experience Rating': data.experience_rating || '',
+            'Name': data.name || '',
+            'WhatsApp Number': data.whatsapp || ''
+        };
+        
+        console.log('Adding row data:', rowData);
+        
+        // Get the next row number
+        const nextRowNumber = worksheet.lastRow ? worksheet.lastRow.number + 1 : 2;
+        console.log('Adding to row number:', nextRowNumber);
+        
+        // Add the row using array format for better compatibility
+        const newRowArray = [
             dateStr,
             timeStr,
             likedMost,
@@ -109,16 +156,30 @@ async function appendToExcel(data) {
             data.whatsapp || ''
         ];
         
-        // Add new row
-        worksheet.addRow(newRowData);
+        const newRow = worksheet.addRow(newRowArray);
         
-        // Write back to file
+        // Auto-fit columns after adding data
+        worksheet.columns.forEach((column, index) => {
+            let maxLength = 0;
+            column.eachCell({ includeEmpty: true }, (cell) => {
+                const columnLength = cell.value ? cell.value.toString().length : 10;
+                if (columnLength > maxLength) {
+                    maxLength = columnLength;
+                }
+            });
+            column.width = Math.max(maxLength + 2, 12);
+        });
+        
+        // Save the file
         await workbook.xlsx.writeFile(excelFilePath);
+        
+        console.log('Excel file updated successfully!');
         
         return { success: true, message: 'Data saved successfully!' };
         
     } catch (error) {
         console.error('Error writing to Excel:', error);
+        console.error('Error stack:', error.stack);
         return { success: false, message: 'Error saving data: ' + error.message };
     }
 }
