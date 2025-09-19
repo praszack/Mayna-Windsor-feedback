@@ -94,6 +94,15 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
         }
 
         .feedback-title {
@@ -261,6 +270,27 @@
                 align-items: flex-start;
                 gap: 10px;
             }
+
+            .feedback-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+
+            .header-controls {
+                width: 100%;
+                justify-content: space-between;
+            }
+
+            .live-indicator {
+                font-size: 0.8em;
+            }
+
+            .export-btn {
+                margin-left: 0;
+                padding: 10px 20px;
+                font-size: 0.85em;
+            }
         }
     </style>
 </head>
@@ -293,7 +323,7 @@
         <div class="feedback-container">
             <div class="feedback-header">
                 <h2 class="feedback-title">Recent Feedback</h2>
-                <div>
+                <div class="header-controls">
                     <span class="live-indicator">
                         <span class="live-dot"></span>
                         Live Updates
@@ -397,7 +427,14 @@
                 return;
             }
 
-            const feedbackHTML = feedbackList.map(feedback => {
+            // Sort by submission time (most recent first) and take only the first 3
+            const sortedFeedback = feedbackList.sort((a, b) => {
+                const dateA = new Date(`${a['Submission Date']} ${a['Submission Time']}`);
+                const dateB = new Date(`${b['Submission Date']} ${b['Submission Time']}`);
+                return dateB - dateA; // Most recent first
+            }).slice(0, 3); // Take only first 3
+
+            const feedbackHTML = sortedFeedback.map(feedback => {
                 // Backend stores date/time in 'Submission Date' and 'Submission Time' fields
                 const formattedDate = feedback['Submission Date'] || 'Unknown';
                 const formattedTime = feedback['Submission Time'] || 'Unknown';

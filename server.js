@@ -129,8 +129,15 @@ async function appendToExcel(data) {
 
         // Prepare new row data
         const now = new Date();
-        const dateStr = now.toLocaleDateString('en-IN'); // Indian date format
-        const timeStr = now.toLocaleTimeString('en-IN'); // Indian time format
+        // Use consistent date format: DD/MM/YYYY
+        const dateStr = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()}`;
+        // Use consistent time format: HH:MM:SS AM/PM
+        const timeStr = now.toLocaleTimeString('en-IN', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true
+        });
 
         // Format arrays as comma-separated strings
         const likedMost = Array.isArray(data.liked_most) ? data.liked_most.join(', ') : (data.liked_most || '');
@@ -180,17 +187,34 @@ async function appendToExcel(data) {
             column.width = Math.max(maxLength + 2, 12);
         });
 
-        // Save the file
-        await workbook.xlsx.writeFile(excelFilePath);
+        // Save the file with retry mechanism
+        let retryCount = 0;
+        const maxRetries = 3;
 
-        console.log('Excel file updated successfully!');
-        console.log(`Total rows in worksheet: ${worksheet.rowCount}`);
+        while (retryCount < maxRetries) {
+            try {
+                await workbook.xlsx.writeFile(excelFilePath);
+                console.log('Excel file updated successfully!');
+                console.log(`Total rows in worksheet: ${worksheet.rowCount}`);
+                console.log(`Data written to row ${nextRowNumber}:`, newRowArray);
 
-        if (fileLocked) {
-            console.warn('⚠️  File was locked during write operation. Close Excel and try again if updates don\'t appear.');
+                if (fileLocked) {
+                    console.warn('⚠️  File was locked during write operation. Close Excel and try again if updates don\'t appear.');
+                }
+
+                return { success: true, message: 'Data saved successfully!' };
+            } catch (writeError) {
+                retryCount++;
+                console.warn(`Write attempt ${retryCount} failed:`, writeError.message);
+
+                if (retryCount < maxRetries) {
+                    console.log(`Retrying in 1 second...`);
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                } else {
+                    throw writeError;
+                }
+            }
         }
-
-        return { success: true, message: 'Data saved successfully!' };
 
     } catch (error) {
         console.error('Error writing to Excel:', error);
