@@ -90,22 +90,37 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background: #f8f9fa;
-            padding: 12px 24px;
-            border-radius: 25px;
-            border: 1px solid #e9ecef;
+            /* Pop effect defaults */
+            background: #ffffff;
+            padding: 14px 28px;
+            border-radius: 28px;
+            border: 2px solid #e6ebf1;
             cursor: pointer;
-            transition: all 0.3s ease;
-            min-width: 120px;
-            color: #666;
-            font-size: 0.9em;
+            min-width: 140px;
+
+            /* Typography */
+            color: #444;
+            font-size: 1.05em;
             font-family: 'Poppins', sans-serif;
-            font-weight: 400;
+            font-weight: 500;
+            letter-spacing: 0.2px;
+
+            /* Motion/Depth */
+            box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+            transition:
+                transform 150ms ease,
+                box-shadow 200ms ease,
+                background-color 200ms ease,
+                border-color 200ms ease,
+                color 200ms ease;
+            will-change: transform;
         }
 
         .radio-option:hover, .checkbox-option:hover {
-            background: #e9ecef;
-            border-color: #ccc;
+            background: #fefefe;
+            border-color: #d0d7e2;
+            transform: translateY(-2px) scale(1.03);
+            box-shadow: 0 10px 24px rgba(0,0,0,0.12);
         }
 
         .radio-option input, .checkbox-option input {
@@ -114,8 +129,22 @@
 
         .radio-option.selected, .checkbox-option.selected {
             background: #28a745;
-            color: white;
-            border-color: #28a745;
+            color: #ffffff;
+            border-color: #1f8a39;
+            transform: translateY(-2px) scale(1.05);
+            box-shadow: 0 12px 28px rgba(40,167,69,0.35);
+        }
+
+        /* Tactile press */
+        .radio-option:active, .checkbox-option:active {
+            transform: translateY(0) scale(0.98);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.10);
+        }
+
+        /* Keyboard focus */
+        .radio-option:focus-visible, .checkbox-option:focus-visible {
+            outline: 3px solid rgba(40,167,69,0.5);
+            outline-offset: 2px;
         }
 
         .textarea-container {
