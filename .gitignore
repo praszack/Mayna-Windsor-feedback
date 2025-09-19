@@ -86,6 +86,9 @@ jspm_packages/
 
 # Excel files (will be created by the application)
 *.xlsx
+# Local data backups (do not commit)
+feedback_data.json
+feedback_data.csv
 
 # OS generated files
 .DS_Store

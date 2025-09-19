@@ -534,8 +534,9 @@
             // Convert to CSV
             const csvString = convertToCSV(csvData);
             
-            // Download CSV file
-            const blob = new Blob([csvString], { type: 'text/csv' });
+            // Download CSV file with BOM and charset for Excel compatibility
+            const bom = '\uFEFF';
+            const blob = new Blob([bom, csvString], { type: 'text/csv;charset=utf-8' });
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -554,16 +555,19 @@
             csvRows.push(headers.join(','));
             
             // Add data rows
+            const sanitize = (val) => {
+                const str = (val == null ? '' : String(val));
+                // Remove embedded CR/LF which break CSV rows in Excel
+                return str.replace(/\r?\n/g, ' ').replace(/"/g, '""');
+            };
+            
             data.forEach(row => {
-                const values = headers.map(header => {
-                    const value = row[header] || '';
-                    // Escape commas and quotes in CSV
-                    return `"${value.toString().replace(/"/g, '""')}"`;
-                });
+                const values = headers.map(header => `"${sanitize(row[header])}"`);
                 csvRows.push(values.join(','));
             });
             
-            return csvRows.join('\\n');
+            // Use CRLF for Excel on Windows; ensure actual newline characters
+            return csvRows.join('\r\n');
         }
     </script>
 </body>

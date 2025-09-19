@@ -20,8 +20,217 @@ app.use(express.urlencoded({ extended: true }));
 // Serve static files (your HTML form)
 app.use(express.static(path.join(__dirname)));
 
-// Path to the Excel file
+// Path to the Excel file and backup JSON file
 const excelFilePath = path.join(__dirname, 'feedback_data.xlsx');
+const jsonBackupPath = path.join(__dirname, 'feedback_data.json');
+const csvBackupPath = path.join(__dirname, 'feedback_data.csv');
+
+// Detect hosting environment
+const isHostingEnvironment = () => {
+    return process.env.NODE_ENV === 'production' || 
+           process.env.HEROKU || 
+           process.env.VERCEL || 
+           process.env.RAILWAY_PROJECT_ID ||
+           process.env.RENDER ||
+           process.env.CYCLIC_APP_ID ||
+           !fs.existsSync(path.join(__dirname, 'package.json')); // Simple check for read-only filesystem
+};
+
+// Get current environment info
+const getEnvironmentInfo = () => {
+    const hosting = isHostingEnvironment();
+    const platform = process.env.HEROKU ? 'Heroku' :
+                     process.env.VERCEL ? 'Vercel' :
+                     process.env.RAILWAY_PROJECT_ID ? 'Railway' :
+                     process.env.RENDER ? 'Render' :
+                     process.env.CYCLIC_APP_ID ? 'Cyclic' :
+                     hosting ? 'Unknown Hosting' : 'Local';
+    
+    return { hosting, platform };
+};
+
+console.log('Environment detected:', getEnvironmentInfo());
+
+// JSON Data Handler Functions
+async function saveToJSON(data) {
+    try {
+        const headers = [
+            'Submission Date',
+            'Submission Time', 
+            'Liked Most',
+            'Planning to Buy',
+            'Interested In',
+            'Experience Rating',
+            'Name',
+            'WhatsApp Number'
+        ];
+
+        // Read existing JSON data
+        let existingData = [];
+        if (fs.existsSync(jsonBackupPath)) {
+            try {
+                const jsonContent = fs.readFileSync(jsonBackupPath, 'utf8');
+                existingData = JSON.parse(jsonContent);
+            } catch (parseError) {
+                console.warn('Error reading existing JSON, starting fresh:', parseError.message);
+                existingData = [];
+            }
+        }
+
+        // Prepare new entry
+        const now = new Date();
+        const dateStr = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`;
+        const timeStr = now.toLocaleTimeString('en-IN', {
+            hour: 'numeric',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true
+        });
+
+        const likedMost = Array.isArray(data.liked_most) ? data.liked_most.join(', ') : (data.liked_most || '');
+        const jewelTypes = Array.isArray(data.jewel_types) ? data.jewel_types.join(', ') : (data.jewel_types || '');
+
+        const newEntry = {
+            'Submission Date': dateStr,
+            'Submission Time': timeStr,
+            'Liked Most': likedMost,
+            'Planning to Buy': data.planning_to_buy || '',
+            'Interested In': jewelTypes,
+            'Experience Rating': data.experience_rating || '',
+            'Name': data.name || '',
+            'WhatsApp Number': data.whatsapp || '',
+            'Timestamp': now.toISOString()
+        };
+
+        // Add to existing data
+        existingData.push(newEntry);
+
+        // Save back to JSON
+        fs.writeFileSync(jsonBackupPath, JSON.stringify(existingData, null, 2), 'utf8');
+        console.log('Data saved to JSON backup successfully');
+        
+        return { success: true, message: 'Data saved to JSON backup successfully!' };
+    } catch (error) {
+        console.error('Error saving to JSON:', error);
+        return { success: false, message: 'Error saving to JSON: ' + error.message };
+    }
+}
+
+async function saveToCSV(data) {
+    try {
+        const headers = 'Submission Date,Submission Time,Liked Most,Planning to Buy,Interested In,Experience Rating,Name,WhatsApp Number\n';
+        
+        // Prepare new entry
+        const now = new Date();
+        const dateStr = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`;
+        const timeStr = now.toLocaleTimeString('en-IN', {
+            hour: 'numeric',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true
+        });
+
+        const likedMost = Array.isArray(data.liked_most) ? data.liked_most.join('; ') : (data.liked_most || '');
+        const jewelTypes = Array.isArray(data.jewel_types) ? data.jewel_types.join('; ') : (data.jewel_types || '');
+
+        // Escape quotes and commas for CSV
+        const escapeCSV = (str) => {
+            if (typeof str !== 'string') str = String(str || '');
+            if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                return '"' + str.replace(/"/g, '""') + '"';
+            }
+            return str;
+        };
+
+        const csvRow = [
+            escapeCSV(dateStr),
+            escapeCSV(timeStr),
+            escapeCSV(likedMost),
+            escapeCSV(data.planning_to_buy || ''),
+            escapeCSV(jewelTypes),
+            escapeCSV(data.experience_rating || ''),
+            escapeCSV(data.name || ''),
+            escapeCSV(data.whatsapp || '')
+        ].join(',') + '\n';
+
+        // Check if file exists, if not create with headers
+        if (!fs.existsSync(csvBackupPath)) {
+            fs.writeFileSync(csvBackupPath, headers, 'utf8');
+        }
+
+        // Append new row
+        fs.appendFileSync(csvBackupPath, csvRow, 'utf8');
+        console.log('Data saved to CSV backup successfully');
+        
+        return { success: true, message: 'Data saved to CSV backup successfully!' };
+    } catch (error) {
+        console.error('Error saving to CSV:', error);
+        return { success: false, message: 'Error saving to CSV: ' + error.message };
+    }
+}
+
+// Enhanced data saving function with multiple fallbacks
+async function saveDataWithFallbacks(data) {
+    const envInfo = getEnvironmentInfo();
+    const results = [];
+    let primarySuccess = false;
+
+    // Try Excel first (preferred method)
+    if (!envInfo.hosting || envInfo.platform === 'Local') {
+        try {
+            const excelResult = await appendToExcel(data);
+            results.push({ method: 'Excel', result: excelResult });
+            if (excelResult.success) {
+                primarySuccess = true;
+            }
+        } catch (excelError) {
+            results.push({ method: 'Excel', result: { success: false, message: excelError.message } });
+            console.warn('Excel save failed, trying fallbacks...');
+        }
+    } else {
+        console.log('Hosting environment detected, skipping Excel and using fallbacks');
+    }
+
+    // Always save to JSON as backup
+    try {
+        const jsonResult = await saveToJSON(data);
+        results.push({ method: 'JSON', result: jsonResult });
+        if (!primarySuccess && jsonResult.success) {
+            primarySuccess = true;
+        }
+    } catch (jsonError) {
+        results.push({ method: 'JSON', result: { success: false, message: jsonError.message } });
+    }
+
+    // Always save to CSV as additional backup
+    try {
+        const csvResult = await saveToCSV(data);
+        results.push({ method: 'CSV', result: csvResult });
+        if (!primarySuccess && csvResult.success) {
+            primarySuccess = true;
+        }
+    } catch (csvError) {
+        results.push({ method: 'CSV', result: { success: false, message: csvError.message } });
+    }
+
+    console.log('Save results:', results);
+    
+    if (primarySuccess) {
+        const successMethods = results.filter(r => r.result.success).map(r => r.method);
+        return { 
+            success: true, 
+            message: `Data saved successfully! Methods: ${successMethods.join(', ')}`,
+            methods: successMethods,
+            details: results
+        };
+    } else {
+        return { 
+            success: false, 
+            message: 'All save methods failed. Please try again.',
+            details: results
+        };
+    }
+}
 
 // Function to create Excel file if it doesn't exist
 async function createExcelFileIfNotExists() {
@@ -134,7 +343,10 @@ function normalizeWorksheet(worksheet) {
 
             // If time has AM/PM but uppercase, normalize to lowercase "am"/"pm"
             if (/AM|PM/.test(s)) {
-                row.getCell(2).value = s.toLowerCase();
+                let tlc = s.toLowerCase();
+                // remove leading zero from hour e.g. "08:12:01 am" -> "8:12:01 am"
+                tlc = tlc.replace(/^0(\d:)/, '$1');
+                row.getCell(2).value = tlc;
             } else if (!timeHasAmPm(s)) {
                 // If no am/pm, assume 24h "HH:MM[:SS]" and convert to 12h with am/pm
                 const mt = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
@@ -146,7 +358,8 @@ function normalizeWorksheet(worksheet) {
                     if (h === 0) { h = 12; suffix = 'am'; }
                     else if (h === 12) { suffix = 'pm'; }
                     else if (h > 12) { h = h - 12; suffix = 'pm'; }
-                    row.getCell(2).value = `${h.toString().padStart(2, '0')}:${min}:${sec} ${suffix}`;
+                    // do not pad hour with leading zero
+                    row.getCell(2).value = `${h}:${min}:${sec} ${suffix}`;
                 }
             }
         }
@@ -222,8 +435,30 @@ async function fixExcelFile() {
             fgColor: { argb: 'FFE6E6E6' }
         };
         
-        // Add unique data rows
+        // Add unique data rows with normalized date and time
         uniqueRows.forEach(rowData => {
+            try {
+                // Normalize date in column 0 (Submission Date) to D/M/YYYY (no leading zeros)
+                if (rowData[0]) {
+                    const dstr = rowData[0].toString().trim();
+                    const md = dstr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+                    if (md) {
+                        const d = parseInt(md[1], 10);
+                        const m = parseInt(md[2], 10);
+                        const y = parseInt(md[3], 10);
+                        rowData[0] = `${d}/${m}/${y}`;
+                    }
+                }
+                // Normalize time in column 1 (Submission Time) to h:mm:ss am/pm (no leading zero hour)
+                if (rowData[1]) {
+                    let tstr = rowData[1].toString().trim().toLowerCase();
+                    // Remove leading zero from hour like "08:12:01 am" => "8:12:01 am"
+                    tstr = tstr.replace(/^0(\d:)/, '$1');
+                    rowData[1] = tstr;
+                }
+            } catch (e) {
+                console.warn('Normalize error for row:', e.message);
+            }
             newWorksheet.addRow(rowData);
         });
         
@@ -322,11 +557,11 @@ async function appendToExcel(data) {
 
         // Prepare new row data
         const now = new Date();
-        // Use consistent date format: DD/MM/YYYY (with leading zeros for consistency)
-        const dateStr = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()}`;
+        // Use consistent date format: D/M/YYYY (no leading zeros)
+        const dateStr = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`;
         // Use consistent time format: HH:MM:SS AM/PM
         const timeStr = now.toLocaleTimeString('en-IN', {
-            hour: '2-digit',
+            hour: 'numeric',
             minute: '2-digit',
             second: '2-digit',
             hour12: true
@@ -472,38 +707,59 @@ app.get('/', (req, res) => {
 // Feedback submission endpoint
 app.post('/submit-feedback', async (req, res) => {
     console.log('Received feedback data:', req.body);
+    const envInfo = getEnvironmentInfo();
+    console.log('Processing in environment:', envInfo);
     
     try {
-        const result = await appendToExcel(req.body);
+        // Use the new fallback system
+        const result = await saveDataWithFallbacks(req.body);
         
         if (result.success) {
             res.status(200).json({
                 success: true,
-                message: 'Thank you for your valuable feedback! Your response has been recorded.'
+                message: 'Thank you for your valuable feedback! Your response has been recorded.',
+                environment: envInfo.platform,
+                storage_methods: result.methods || ['Unknown'],
+                details: process.env.NODE_ENV === 'development' ? result.details : undefined
             });
         } else {
+            console.error('All storage methods failed:', result.details);
             res.status(500).json({
                 success: false,
-                message: result.message
+                message: 'Unable to save your feedback. Please try again later.',
+                environment: envInfo.platform,
+                details: process.env.NODE_ENV === 'development' ? result.details : undefined
             });
         }
     } catch (error) {
         console.error('Server error:', error);
         res.status(500).json({
             success: false,
-            message: 'Server error occurred while saving your feedback.'
+            message: 'Server error occurred while saving your feedback.',
+            environment: envInfo.platform
         });
     }
 });
 
 // Health check endpoint
 app.get('/health', (req, res) => {
+    const envInfo = getEnvironmentInfo();
+    const filesExist = {
+        excel: fs.existsSync(excelFilePath),
+        json: fs.existsSync(jsonBackupPath),
+        csv: fs.existsSync(csvBackupPath)
+    };
+    
     res.json({ 
         status: 'Server is running!', 
         timestamp: new Date().toISOString(),
         environment: process.env.NODE_ENV || 'development',
+        platform: envInfo.platform,
+        hosting: envInfo.hosting,
         port: PORT,
-        uptime: process.uptime()
+        uptime: process.uptime(),
+        data_files: filesExist,
+        storage_priority: envInfo.hosting ? ['JSON', 'CSV', 'Excel'] : ['Excel', 'JSON', 'CSV']
     });
 });
 
@@ -524,93 +780,202 @@ app.post('/fix-excel', async (req, res) => {
     }
 });
 
-// Get feedback data (optional - for viewing data)
+// Get feedback data (optional - for viewing data) with multiple source fallback
 app.get('/view-feedback', async (req, res) => {
+    const envInfo = getEnvironmentInfo();
+    let data = [];
+    let source = '';
+    let success = false;
+
     try {
-        if (fs.existsSync(excelFilePath)) {
-            const workbook = new ExcelJS.Workbook();
-            await workbook.xlsx.readFile(excelFilePath);
-            const worksheet = workbook.getWorksheet('Feedback Data');
-            
-            if (worksheet) {
-                const data = [];
-                const headers = [];
+        // Try Excel first (if not in hosting environment)
+        if (!envInfo.hosting && fs.existsSync(excelFilePath)) {
+            try {
+                const workbook = new ExcelJS.Workbook();
+                await workbook.xlsx.readFile(excelFilePath);
+                const worksheet = workbook.getWorksheet('Feedback Data');
                 
-                // Get headers from first row
-                worksheet.getRow(1).eachCell((cell, cellNumber) => {
-                    headers[cellNumber - 1] = cell.value;
-                });
-                
-                // Get data from subsequent rows
-                worksheet.eachRow((row, rowNumber) => {
-                    if (rowNumber > 1) { // Skip header row
-                        const rowData = {};
-                        row.eachCell((cell, cellNumber) => {
-                            const header = headers[cellNumber - 1];
-                            if (header) {
-                                let v = cell.value;
+                if (worksheet) {
+                    const headers = [];
+                    
+                    // Get headers from first row
+                    worksheet.getRow(1).eachCell((cell, cellNumber) => {
+                        headers[cellNumber - 1] = cell.value;
+                    });
+                    
+                    // Get data from subsequent rows
+                    worksheet.eachRow((row, rowNumber) => {
+                        if (rowNumber > 1) { // Skip header row
+                            const rowData = {};
+                            row.eachCell((cell, cellNumber) => {
+                                const header = headers[cellNumber - 1];
+                                if (header) {
+                                    let v = cell.value;
 
-                                // Normalize date/time for API output
-                                if (v && header === 'Submission Date') {
-                                    if (v instanceof Date) {
-                                        v = `${v.getDate()}/${v.getMonth() + 1}/${v.getFullYear()}`; // D/M/YYYY
-                                    } else {
-                                        v = v.toString();
+                                    // Normalize date/time for API output
+                                    if (v && header === 'Submission Date') {
+                                        if (v instanceof Date) {
+                                            v = `${v.getDate()}/${v.getMonth() + 1}/${v.getFullYear()}`;
+                                        } else {
+                                            v = v.toString();
+                                        }
+                                    } else if (v && header === 'Submission Time') {
+                                        if (v instanceof Date) {
+                                            v = v.toLocaleTimeString('en-IN', {
+                                                hour: 'numeric',
+                                                minute: '2-digit',
+                                                second: '2-digit',
+                                                hour12: true
+                                            });
+                                        } else {
+                                            v = v.toString().replace(/\bAM\b|\bPM\b/g, (m) => m.toLowerCase());
+                                        }
                                     }
-                                } else if (v && header === 'Submission Time') {
-                                    if (v instanceof Date) {
-                                        v = v.toLocaleTimeString('en-IN', {
-                                            hour: '2-digit',
-                                            minute: '2-digit',
-                                            second: '2-digit',
-                                            hour12: true
-                                        });
-                                    } else {
-                                        // If it's a plain string, normalize AM/PM casing
-                                        v = v.toString().replace(/\bAM\b|\bPM\b/g, (m) => m.toLowerCase());
-                                    }
+
+                                    rowData[header] = v;
                                 }
+                            });
+                            data.push(rowData);
+                        }
+                    });
+                    source = 'Excel';
+                    success = true;
+                }
+            } catch (excelError) {
+                console.warn('Error reading Excel file:', excelError.message);
+            }
+        }
 
-                                rowData[header] = v;
-                            }
+        // Fallback to JSON if Excel failed or in hosting environment
+        if (!success && fs.existsSync(jsonBackupPath)) {
+            try {
+                const jsonContent = fs.readFileSync(jsonBackupPath, 'utf8');
+                data = JSON.parse(jsonContent);
+                source = 'JSON';
+                success = true;
+            } catch (jsonError) {
+                console.warn('Error reading JSON file:', jsonError.message);
+            }
+        }
+
+        // Final fallback to CSV
+        if (!success && fs.existsSync(csvBackupPath)) {
+            try {
+                const csvContent = fs.readFileSync(csvBackupPath, 'utf8');
+                const lines = csvContent.trim().split('\n');
+                
+                if (lines.length > 1) {
+                    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+                    data = [];
+                    
+                    for (let i = 1; i < lines.length; i++) {
+                        const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+                        const rowData = {};
+                        
+                        headers.forEach((header, index) => {
+                            rowData[header] = values[index] || '';
                         });
+                        
                         data.push(rowData);
                     }
-                });
-                
-                res.json({
-                    success: true,
-                    data: data,
-                    total: data.length
-                });
-            } else {
-                res.json({
-                    success: true,
-                    data: [],
-                    total: 0,
-                    message: 'Feedback Data worksheet not found.'
-                });
+                }
+                source = 'CSV';
+                success = true;
+            } catch (csvError) {
+                console.warn('Error reading CSV file:', csvError.message);
             }
+        }
+
+        if (success) {
+            res.json({
+                success: true,
+                data: data,
+                total: data.length,
+                source: source,
+                environment: envInfo.platform,
+                message: `Data loaded from ${source} file`
+            });
         } else {
             res.json({
                 success: true,
                 data: [],
                 total: 0,
+                source: 'None',
+                environment: envInfo.platform,
                 message: 'No feedback data found yet.'
             });
         }
     } catch (error) {
         res.status(500).json({
             success: false,
-            message: 'Error reading feedback data: ' + error.message
+            message: 'Error reading feedback data: ' + error.message,
+            environment: envInfo.platform
+        });
+    }
+});
+
+// Download CSV endpoint
+app.get('/download-csv', async (req, res) => {
+    try {
+        if (fs.existsSync(csvBackupPath)) {
+            res.setHeader('Content-Type', 'text/csv');
+            res.setHeader('Content-Disposition', 'attachment; filename="mayna_feedback_data.csv"');
+            
+            const csvContent = fs.readFileSync(csvBackupPath, 'utf8');
+            res.send(csvContent);
+        } else {
+            res.status(404).json({
+                success: false,
+                message: 'CSV file not found'
+            });
+        }
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Error downloading CSV: ' + error.message
+        });
+    }
+});
+
+// Download JSON endpoint
+app.get('/download-json', async (req, res) => {
+    try {
+        if (fs.existsSync(jsonBackupPath)) {
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('Content-Disposition', 'attachment; filename="mayna_feedback_data.json"');
+            
+            const jsonContent = fs.readFileSync(jsonBackupPath, 'utf8');
+            res.send(jsonContent);
+        } else {
+            res.status(404).json({
+                success: false,
+                message: 'JSON file not found'
+            });
+        }
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Error downloading JSON: ' + error.message
         });
     }
 });
 
 // Start server
 app.listen(PORT, () => {
+    const envInfo = getEnvironmentInfo();
     console.log(`🚀 Server running on http://localhost:${PORT}`);
-    console.log(`📊 Excel file will be saved as: ${excelFilePath}`);
+    console.log(`🌍 Environment: ${envInfo.platform} (${envInfo.hosting ? 'Hosting' : 'Local'})`);
+    console.log(`📊 Data storage: ${envInfo.hosting ? 'JSON + CSV (Excel disabled)' : 'Excel + JSON + CSV'}`);
     console.log(`📝 Submit feedback at: http://localhost:${PORT}`);
     console.log(`👀 View feedback data at: http://localhost:${PORT}/view-feedback`);
+    console.log(`📥 Download CSV at: http://localhost:${PORT}/download-csv`);
+    console.log(`📥 Download JSON at: http://localhost:${PORT}/download-json`);
+    console.log(`🔧 Health check at: http://localhost:${PORT}/health`);
+    
+    // Storage file paths info
+    if (!envInfo.hosting) {
+        console.log(`📁 Excel file: ${excelFilePath}`);
+    }
+    console.log(`📁 JSON backup: ${jsonBackupPath}`);
+    console.log(`📁 CSV backup: ${csvBackupPath}`);
 });
