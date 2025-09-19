@@ -239,10 +239,6 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'mayna-diamonds-feedback.html'));
 });
 
-// Admin dashboard route
-app.get('/admin', (req, res) => {
-    res.sendFile(path.join(__dirname, 'admin-dashboard.html'));
-});
 
 // Feedback submission endpoint
 app.post('/submit-feedback', async (req, res) => {
