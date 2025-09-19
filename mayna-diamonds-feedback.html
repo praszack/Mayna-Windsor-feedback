@@ -236,6 +236,23 @@
             font-family: 'Poppins', sans-serif;
         }
 
+        /* Show a red asterisk for required labels */
+        .input-field label.required::after {
+            content: ' *';
+            color: #d33;
+            font-weight: 600;
+        }
+
+        /* Visual feedback for HTML5 validity */
+        .input-field input:required:invalid {
+            border-color: #f3b0b0;
+            box-shadow: 0 0 0 3px rgba(255, 82, 82, 0.1);
+        }
+        .input-field input:required:valid {
+            border-color: #a5d6a7;
+            box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.08);
+        }
+
         .input-field input {
             width: 100%;
             padding: 12px 15px;
@@ -441,12 +458,33 @@
             <div class="form-section">
                 <h3>Leave your details for exclusive updates.</h3>
                 <div class="input-field">
-                    <label for="name">Name</label>
-                    <input type="text" id="name" name="name" placeholder="Your Name">
+                    <label for="name" class="required">Name</label>
+                    <input
+                        type="text"
+                        id="name"
+                        name="name"
+                        placeholder="Your Name"
+                        required
+                        aria-required="true"
+                        autocomplete="name"
+                        minlength="2"
+                    >
                 </div>
                 <div class="input-field">
-                    <label for="whatsapp">WhatsApp Number</label>
-                    <input type="tel" id="whatsapp" name="whatsapp" placeholder="WhatsApp Number">
+                    <label for="whatsapp" class="required">WhatsApp Number</label>
+                    <input
+                        type="tel"
+                        id="whatsapp"
+                        name="whatsapp"
+                        placeholder="WhatsApp Number"
+                        required
+                        aria-required="true"
+                        autocomplete="tel"
+                        inputmode="tel"
+                        pattern="^\+?\d{10,15}$"
+                        title="Enter 10 to 15 digits (you can start with +, e.g., +919876543210)"
+                        maxlength="16"
+                    >
                 </div>
             </div>
 
@@ -547,6 +585,25 @@
             // Handle form submission
             document.getElementById('feedbackForm').addEventListener('submit', function(e) {
                 e.preventDefault();
+
+                // Basic required field validation (front-end)
+                const nameEl = document.getElementById('name');
+                const waEl = document.getElementById('whatsapp');
+                const nameVal = (nameEl.value || '').trim();
+                // allow optional + and 10-15 digits
+                const waRaw = (waEl.value || '').trim();
+                const waVal = waRaw.replace(/\s|-/g, '');
+
+                if (!nameVal) {
+                    alert('Please enter your name.');
+                    nameEl.focus();
+                    return;
+                }
+                if (!/^\+?\d{10,15}$/.test(waVal)) {
+                    alert('Please enter a valid WhatsApp number (10–15 digits, you may start with +).');
+                    waEl.focus();
+                    return;
+                }
                 
                 // Collect form data
                 const formData = new FormData(this);
