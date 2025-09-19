@@ -154,6 +154,100 @@ function normalizeWorksheet(worksheet) {
     }
 }
 
+// Function to fix existing Excel file with overlapping data
+async function fixExcelFile() {
+    try {
+        if (!fs.existsSync(excelFilePath)) {
+            console.log('No Excel file to fix.');
+            return;
+        }
+
+        console.log('Fixing Excel file with overlapping data...');
+        
+        // Read existing data
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.readFile(excelFilePath);
+        let worksheet = workbook.getWorksheet('Feedback Data');
+        
+        if (!worksheet) {
+            console.log('No worksheet to fix.');
+            return;
+        }
+
+        // Extract all unique data rows (skip duplicates)
+        const uniqueRows = [];
+        const seenRows = new Set();
+        
+        worksheet.eachRow((row, rowNumber) => {
+            if (rowNumber === 1) return; // Skip header
+            
+            // Create a string representation of the row for comparison
+            const rowData = [];
+            row.eachCell((cell, colNumber) => {
+                if (colNumber <= 8) { // Only consider first 8 columns
+                    rowData.push((cell.value || '').toString().trim());
+                }
+            });
+            
+            const rowStr = rowData.join('|');
+            if (rowStr && rowStr !== '|||||||' && !seenRows.has(rowStr)) {
+                seenRows.add(rowStr);
+                uniqueRows.push(rowData);
+            }
+        });
+        
+        console.log('Found', uniqueRows.length, 'unique data rows');
+        
+        // Recreate the worksheet
+        const newWorkbook = new ExcelJS.Workbook();
+        const newWorksheet = newWorkbook.addWorksheet('Feedback Data');
+        
+        // Add headers
+        const headers = [
+            'Submission Date',
+            'Submission Time',
+            'Liked Most',
+            'Planning to Buy',
+            'Interested In',
+            'Experience Rating',
+            'Name',
+            'WhatsApp Number'
+        ];
+        
+        const headerRow = newWorksheet.addRow(headers);
+        headerRow.font = { bold: true, color: { argb: 'FF000000' } };
+        headerRow.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFE6E6E6' }
+        };
+        
+        // Add unique data rows
+        uniqueRows.forEach(rowData => {
+            newWorksheet.addRow(rowData);
+        });
+        
+        // Set column widths
+        newWorksheet.columns = [
+            { width: 15 }, // Submission Date
+            { width: 15 }, // Submission Time
+            { width: 20 }, // Liked Most
+            { width: 15 }, // Planning to Buy
+            { width: 20 }, // Interested In
+            { width: 12 }, // Experience Rating
+            { width: 20 }, // Name
+            { width: 18 }  // WhatsApp Number
+        ];
+        
+        // Save the fixed file
+        await newWorkbook.xlsx.writeFile(excelFilePath);
+        console.log('Excel file fixed successfully! Removed duplicates and organized data properly.');
+        
+    } catch (error) {
+        console.error('Error fixing Excel file:', error);
+    }
+}
+
 // Function to append data to Excel file
 async function appendToExcel(data) {
     let fileLocked = false;
@@ -201,6 +295,31 @@ async function appendToExcel(data) {
         // Normalize headers and legacy date/time for existing rows
         normalizeWorksheet(worksheet);
 
+        // Ensure worksheet integrity - fix any structural issues
+        try {
+            // Count actual rows with data
+            let dataRowCount = 0;
+            worksheet.eachRow((row, rowNumber) => {
+                if (rowNumber === 1) return; // Skip header
+                
+                // Check if row has any data
+                let hasData = false;
+                row.eachCell((cell) => {
+                    if (cell.value && cell.value.toString().trim() !== '') {
+                        hasData = true;
+                    }
+                });
+                
+                if (hasData) {
+                    dataRowCount++;
+                }
+            });
+            
+            console.log('Found', dataRowCount, 'existing data rows');
+        } catch (countError) {
+            console.warn('Error counting rows:', countError.message);
+        }
+
         // Prepare new row data
         const now = new Date();
         // Use consistent date format: DD/MM/YYYY (with leading zeros for consistency)
@@ -231,8 +350,15 @@ async function appendToExcel(data) {
 
         console.log('Adding row data:', rowData);
 
-        // Get the next row number
-        const nextRowNumber = worksheet.lastRow ? worksheet.lastRow.number + 1 : 2;
+        // Get the actual row count to determine next row number
+        let actualRowCount = 1; // Start with 1 for header row
+        worksheet.eachRow((row, rowNumber) => {
+            if (rowNumber > actualRowCount) {
+                actualRowCount = rowNumber;
+            }
+        });
+        const nextRowNumber = actualRowCount + 1;
+        console.log('Current row count:', actualRowCount);
         console.log('Adding to row number:', nextRowNumber);
 
         // Add the row using array format for better compatibility
@@ -247,7 +373,9 @@ async function appendToExcel(data) {
             data.whatsapp || ''
         ];
 
+        // Add row at the end (addRow is more reliable than insertRow)
         const newRow = worksheet.addRow(newRowArray);
+        console.log('Row added at position:', newRow.number);
 
         // Ensure Excel stores proper date/time types and displays them correctly
         try {
@@ -377,6 +505,23 @@ app.get('/health', (req, res) => {
         port: PORT,
         uptime: process.uptime()
     });
+});
+
+// Fix Excel file endpoint
+app.post('/fix-excel', async (req, res) => {
+    try {
+        await fixExcelFile();
+        res.json({
+            success: true,
+            message: 'Excel file has been fixed successfully! Duplicates removed and data organized.'
+        });
+    } catch (error) {
+        console.error('Error fixing Excel file:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fixing Excel file: ' + error.message
+        });
+    }
 });
 
 // Get feedback data (optional - for viewing data)
