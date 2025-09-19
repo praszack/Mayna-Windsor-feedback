@@ -243,14 +243,11 @@
             font-weight: 600;
         }
 
-        /* Visual feedback for HTML5 validity */
-        .input-field input:required:invalid {
-            border-color: #f3b0b0;
-            box-shadow: 0 0 0 3px rgba(255, 82, 82, 0.1);
-        }
+        /* Visual feedback for HTML5 validity (soft/no glow as requested) */
+        .input-field input:required:invalid,
         .input-field input:required:valid {
-            border-color: #a5d6a7;
-            box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.08);
+            box-shadow: none;
+            border-color: #e0e0e0; /* keep the base neutral border */
         }
 
         .input-field input {
@@ -481,7 +478,7 @@
                         aria-required="true"
                         autocomplete="tel"
                         inputmode="tel"
-                        pattern="^\+?\d{10,15}$"
+                        pattern="^\d{10}$"
                         title="Enter 10 to 15 digits (you can start with +, e.g., +919876543210)"
                         maxlength="16"
                     >
@@ -590,20 +587,22 @@
                 const nameEl = document.getElementById('name');
                 const waEl = document.getElementById('whatsapp');
                 const nameVal = (nameEl.value || '').trim();
-                // allow optional + and 10-15 digits
+                // exactly 10 digits (no country code)
                 const waRaw = (waEl.value || '').trim();
-                const waVal = waRaw.replace(/\s|-/g, '');
+                const waVal = waRaw.replace(/\D/g, ''); // keep digits only
 
                 if (!nameVal) {
                     alert('Please enter your name.');
                     nameEl.focus();
                     return;
                 }
-                if (!/^\+?\d{10,15}$/.test(waVal)) {
-                    alert('Please enter a valid WhatsApp number (10–15 digits, you may start with +).');
+                if (!/^\d{10}$/.test(waVal)) {
+                    alert('Please enter a valid 10-digit WhatsApp number (no country code).');
                     waEl.focus();
                     return;
                 }
+                // normalize the input value to digits-only
+                waEl.value = waVal;
                 
                 // Collect form data
                 const formData = new FormData(this);
