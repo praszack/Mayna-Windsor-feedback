@@ -389,9 +389,21 @@
             console.log('Sample feedback dates:', feedbackList.slice(0, 3).map(fb => fb['Submission Date']));
 
             const todayFeedback = feedbackList.filter(fb => {
-                // Backend stores date as 'Submission Date' field in DD/MM/YYYY format
+                // Backend stores date as 'Submission Date' field in DD/MM/YYYY or D/M/YYYY format
                 const submissionDate = fb['Submission Date'];
-                return submissionDate === today;
+                // Normalize both formats for comparison
+                const normalizeDate = (dateStr) => {
+                    if (!dateStr) return '';
+                    const parts = dateStr.split('/');
+                    if (parts.length === 3) {
+                        const day = parts[0].padStart(2, '0');
+                        const month = parts[1].padStart(2, '0');
+                        const year = parts[2];
+                        return `${day}/${month}/${year}`;
+                    }
+                    return dateStr;
+                };
+                return normalizeDate(submissionDate) === normalizeDate(today);
             });
 
             console.log('Today\'s feedback count:', todayFeedback.length);
@@ -446,7 +458,7 @@
                 const likedMostStr = feedback['Liked Most'] || '';
                 const likedMost = likedMostStr ? likedMostStr.split(', ').filter(item => item.trim()) : [];
                 
-                const jewelTypesStr = feedback['Jewel Types'] || '';
+                const jewelTypesStr = feedback['Interested In'] || '';
                 const jewelTypes = jewelTypesStr ? jewelTypesStr.split(', ').filter(item => item.trim()) : [];
 
                 return `
@@ -515,7 +527,7 @@
                     'Rating': feedback['Experience Rating'] || '',
                     'Planning to Buy': feedback['Planning to Buy'] || '',
                     'Liked Most': feedback['Liked Most'] || '',
-                    'Interested In': feedback['Jewel Types'] || ''
+                    'Interested In': feedback['Interested In'] || ''
                 };
             });
 

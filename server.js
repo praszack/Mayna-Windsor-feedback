@@ -34,10 +34,10 @@ async function createExcelFileIfNotExists() {
             // Create headers for the feedback data - ensure exact match with append function
             const headers = [
                 'Submission Date',
-                'Submission Time', 
+                'Submission Time',
                 'Liked Most',
                 'Planning to Buy',
-                'Jewel Types',
+                'Interested In',
                 'Experience Rating',
                 'Name',
                 'WhatsApp Number'
@@ -62,7 +62,7 @@ async function createExcelFileIfNotExists() {
                 { width: 15 }, // Submission Time
                 { width: 20 }, // Liked Most
                 { width: 15 }, // Planning to Buy
-                { width: 20 }, // Jewel Types
+                { width: 20 }, // Interested In
                 { width: 12 }, // Experience Rating
                 { width: 20 }, // Name
                 { width: 18 }  // WhatsApp Number
@@ -80,6 +80,77 @@ async function createExcelFileIfNotExists() {
         console.error('Full error:', error);
         console.warn('Note: Excel file operations may not work on some hosting platforms.');
         console.warn('Consider using a database for production deployments.');
+    }
+}
+// Normalize headers and legacy data in existing worksheets
+function normalizeWorksheet(worksheet) {
+    if (!worksheet) return;
+
+    // Ensure header row matches expected headers exactly
+    const expectedHeaders = [
+        'Submission Date',
+        'Submission Time',
+        'Liked Most',
+        'Planning to Buy',
+        'Interested In',
+        'Experience Rating',
+        'Name',
+        'WhatsApp Number'
+    ];
+
+    const headerRow = worksheet.getRow(1);
+    expectedHeaders.forEach((header, idx) => {
+        const cell = headerRow.getCell(idx + 1);
+        const current = (cell.value || '').toString().trim();
+        if (current !== header) {
+            cell.value = header;
+        }
+    });
+    if (typeof headerRow.commit === 'function') headerRow.commit();
+
+    // Fix existing data rows: date format D/M/YYYY and time to 12-hour with am/pm
+    const timeHasAmPm = (s) => /am|pm/i.test(s);
+    for (let r = 2; r <= worksheet.rowCount; r++) {
+        const row = worksheet.getRow(r);
+
+        // Fix date in column 1
+        let dVal = row.getCell(1).value;
+        if (dVal != null && dVal !== '') {
+            const s = dVal.toString().trim();
+            const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+            if (m) {
+                const d = parseInt(m[1], 10);
+                const mth = parseInt(m[2], 10);
+                const y = parseInt(m[3], 10);
+                // Normalize to D/M/YYYY (no leading zeros)
+                row.getCell(1).value = `${d}/${mth}/${y}`;
+            }
+        }
+
+        // Fix time in column 2
+        let tVal = row.getCell(2).value;
+        if (tVal != null && tVal !== '') {
+            let s = tVal.toString().trim();
+
+            // If time has AM/PM but uppercase, normalize to lowercase "am"/"pm"
+            if (/AM|PM/.test(s)) {
+                row.getCell(2).value = s.toLowerCase();
+            } else if (!timeHasAmPm(s)) {
+                // If no am/pm, assume 24h "HH:MM[:SS]" and convert to 12h with am/pm
+                const mt = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+                if (mt) {
+                    let h = parseInt(mt[1], 10);
+                    const min = mt[2];
+                    const sec = mt[3] || '00';
+                    let suffix = 'am';
+                    if (h === 0) { h = 12; suffix = 'am'; }
+                    else if (h === 12) { suffix = 'pm'; }
+                    else if (h > 12) { h = h - 12; suffix = 'pm'; }
+                    row.getCell(2).value = `${h.toString().padStart(2, '0')}:${min}:${sec} ${suffix}`;
+                }
+            }
+        }
+        if (typeof row.commit === 'function') row.commit();
     }
 }
 
@@ -119,7 +190,7 @@ async function appendToExcel(data) {
                 'Submission Time',
                 'Liked Most',
                 'Planning to Buy',
-                'Jewel Types',
+                'Interested In',
                 'Experience Rating',
                 'Name',
                 'WhatsApp Number'
@@ -127,9 +198,12 @@ async function appendToExcel(data) {
             worksheet.addRow(headers);
         }
 
+        // Normalize headers and legacy date/time for existing rows
+        normalizeWorksheet(worksheet);
+
         // Prepare new row data
         const now = new Date();
-        // Use consistent date format: DD/MM/YYYY
+        // Use consistent date format: DD/MM/YYYY (with leading zeros for consistency)
         const dateStr = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()}`;
         // Use consistent time format: HH:MM:SS AM/PM
         const timeStr = now.toLocaleTimeString('en-IN', {
@@ -149,7 +223,7 @@ async function appendToExcel(data) {
             'Submission Time': timeStr,
             'Liked Most': likedMost,
             'Planning to Buy': data.planning_to_buy || '',
-            'Jewel Types': jewelTypes,
+            'Interested In': jewelTypes,
             'Experience Rating': data.experience_rating || '',
             'Name': data.name || '',
             'WhatsApp Number': data.whatsapp || ''
@@ -167,13 +241,28 @@ async function appendToExcel(data) {
             timeStr,
             likedMost,
             data.planning_to_buy || '',
-            jewelTypes,
+            jewelTypes, // This will be under "Interested In" column
             data.experience_rating || '',
             data.name || '',
             data.whatsapp || ''
         ];
 
         const newRow = worksheet.addRow(newRowArray);
+
+        // Ensure Excel stores proper date/time types and displays them correctly
+        try {
+            // Column 1: Date
+            const dateCell = newRow.getCell(1);
+            dateCell.value = now; // store as Date object
+            dateCell.numFmt = 'd/m/yyyy'; // show as D/M/YYYY
+
+            // Column 2: Time
+            const timeCell = newRow.getCell(2);
+            timeCell.value = now; // store as Date object, displayed as time only
+            timeCell.numFmt = 'hh:mm:ss am/pm'; // show 12-hour time with am/pm
+        } catch (fmtErr) {
+            console.warn('Failed to apply date/time formats to new row:', fmtErr.message);
+        }
 
         // Auto-fit columns after adding data
         worksheet.columns.forEach((column, index) => {
@@ -232,6 +321,18 @@ async function appendToExcel(data) {
 // Initialize Excel file
 (async () => {
     await createExcelFileIfNotExists();
+    try {
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.readFile(excelFilePath);
+        const worksheet = workbook.getWorksheet('Feedback Data');
+        if (worksheet) {
+            normalizeWorksheet(worksheet);
+            await workbook.xlsx.writeFile(excelFilePath);
+            console.log('Normalized existing Excel data (headers and date/time formats)');
+        }
+    } catch (e) {
+        console.warn('Normalization at startup failed:', e.message);
+    }
 })();
 
 // Routes
@@ -302,7 +403,30 @@ app.get('/view-feedback', async (req, res) => {
                         row.eachCell((cell, cellNumber) => {
                             const header = headers[cellNumber - 1];
                             if (header) {
-                                rowData[header] = cell.value;
+                                let v = cell.value;
+
+                                // Normalize date/time for API output
+                                if (v && header === 'Submission Date') {
+                                    if (v instanceof Date) {
+                                        v = `${v.getDate()}/${v.getMonth() + 1}/${v.getFullYear()}`; // D/M/YYYY
+                                    } else {
+                                        v = v.toString();
+                                    }
+                                } else if (v && header === 'Submission Time') {
+                                    if (v instanceof Date) {
+                                        v = v.toLocaleTimeString('en-IN', {
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                            second: '2-digit',
+                                            hour12: true
+                                        });
+                                    } else {
+                                        // If it's a plain string, normalize AM/PM casing
+                                        v = v.toString().replace(/\bAM\b|\bPM\b/g, (m) => m.toLowerCase());
+                                    }
+                                }
+
+                                rowData[header] = v;
                             }
                         });
                         data.push(rowData);
