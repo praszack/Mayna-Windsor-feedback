@@ -3,6 +3,7 @@ const cors = require('cors');
 const ExcelJS = require('exceljs');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -20,10 +21,19 @@ app.use(express.urlencoded({ extended: true }));
 // Serve static files (your HTML form)
 app.use(express.static(path.join(__dirname)));
 
-// Path to the Excel file and backup JSON file
-const excelFilePath = path.join(__dirname, 'feedback_data.xlsx');
-const jsonBackupPath = path.join(__dirname, 'feedback_data.json');
-const csvBackupPath = path.join(__dirname, 'feedback_data.csv');
+// Path to the Excel file and backup JSON/CSV files
+// On hosting (production) use OS temp directory to avoid read-only filesystem
+const HOSTING = (process.env.NODE_ENV === 'production' ||
+                 process.env.HEROKU ||
+                 process.env.VERCEL ||
+                 process.env.RAILWAY_PROJECT_ID ||
+                 process.env.RENDER ||
+                 process.env.CYCLIC_APP_ID);
+const STORAGE_DIR = HOSTING ? os.tmpdir() : __dirname;
+
+const excelFilePath = path.join(STORAGE_DIR, 'feedback_data.xlsx');
+const jsonBackupPath = path.join(STORAGE_DIR, 'feedback_data.json');
+const csvBackupPath = path.join(STORAGE_DIR, 'feedback_data.csv');
 
 // Detect hosting environment
 const isHostingEnvironment = () => {
@@ -683,24 +693,34 @@ async function appendToExcel(data) {
 
 // Initialize Excel file
 (async () => {
-    await createExcelFileIfNotExists();
-    try {
-        const workbook = new ExcelJS.Workbook();
-        await workbook.xlsx.readFile(excelFilePath);
-        const worksheet = workbook.getWorksheet('Feedback Data');
-        if (worksheet) {
-            normalizeWorksheet(worksheet);
-            await workbook.xlsx.writeFile(excelFilePath);
-            console.log('Normalized existing Excel data (headers and date/time formats)');
+    const envInfo = getEnvironmentInfo();
+    if (!envInfo.hosting) {
+        await createExcelFileIfNotExists();
+        try {
+            const workbook = new ExcelJS.Workbook();
+            await workbook.xlsx.readFile(excelFilePath);
+            const worksheet = workbook.getWorksheet('Feedback Data');
+            if (worksheet) {
+                normalizeWorksheet(worksheet);
+                await workbook.xlsx.writeFile(excelFilePath);
+                console.log('Normalized existing Excel data (headers and date/time formats)');
+            }
+        } catch (e) {
+            console.warn('Normalization at startup failed:', e.message);
         }
-    } catch (e) {
-        console.warn('Normalization at startup failed:', e.message);
+    } else {
+        console.log('Hosting environment detected: skipping Excel init at startup. Using JSON/CSV storage dir:', STORAGE_DIR);
     }
 })();
 
 // Routes
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'mayna-diamonds-feedback.html'));
+});
+
+// Admin dashboard route (explicit path for hosting platforms)
+app.get('/admin', (req, res) => {
+    res.sendFile(path.join(__dirname, 'admin-dashboard.html'));
 });
 
 
