@@ -85,29 +85,39 @@ async function createExcelFileIfNotExists() {
 
 // Function to append data to Excel file
 async function appendToExcel(data) {
+    let fileLocked = false;
     try {
         console.log('Appending data to Excel:', data);
-        
+
         // Check if file exists before reading
         if (!fs.existsSync(excelFilePath)) {
             console.log('Excel file not found, creating new one...');
             await createExcelFileIfNotExists();
         }
-        
+
+        // Check if file is currently locked (being used by another process like Excel)
+        try {
+            const testStream = fs.createWriteStream(excelFilePath, { flags: 'r+' });
+            testStream.end();
+        } catch (lockError) {
+            console.warn('Excel file appears to be locked by another application (like Excel). This may prevent updates.');
+            fileLocked = true;
+        }
+
         // Read existing workbook
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.readFile(excelFilePath);
         let worksheet = workbook.getWorksheet('Feedback Data');
-        
+
         if (!worksheet) {
             console.log('Worksheet not found, creating new one...');
             worksheet = workbook.addWorksheet('Feedback Data');
-            
+
             // Add headers if worksheet is new
             const headers = [
                 'Submission Date',
                 'Submission Time',
-                'Liked Most', 
+                'Liked Most',
                 'Planning to Buy',
                 'Jewel Types',
                 'Experience Rating',
@@ -116,16 +126,16 @@ async function appendToExcel(data) {
             ];
             worksheet.addRow(headers);
         }
-        
+
         // Prepare new row data
         const now = new Date();
         const dateStr = now.toLocaleDateString('en-IN'); // Indian date format
         const timeStr = now.toLocaleTimeString('en-IN'); // Indian time format
-        
+
         // Format arrays as comma-separated strings
         const likedMost = Array.isArray(data.liked_most) ? data.liked_most.join(', ') : (data.liked_most || '');
         const jewelTypes = Array.isArray(data.jewel_types) ? data.jewel_types.join(', ') : (data.jewel_types || '');
-        
+
         // Create row data as an object for better control
         const rowData = {
             'Submission Date': dateStr,
@@ -137,13 +147,13 @@ async function appendToExcel(data) {
             'Name': data.name || '',
             'WhatsApp Number': data.whatsapp || ''
         };
-        
+
         console.log('Adding row data:', rowData);
-        
+
         // Get the next row number
         const nextRowNumber = worksheet.lastRow ? worksheet.lastRow.number + 1 : 2;
         console.log('Adding to row number:', nextRowNumber);
-        
+
         // Add the row using array format for better compatibility
         const newRowArray = [
             dateStr,
@@ -155,9 +165,9 @@ async function appendToExcel(data) {
             data.name || '',
             data.whatsapp || ''
         ];
-        
+
         const newRow = worksheet.addRow(newRowArray);
-        
+
         // Auto-fit columns after adding data
         worksheet.columns.forEach((column, index) => {
             let maxLength = 0;
@@ -169,18 +179,29 @@ async function appendToExcel(data) {
             });
             column.width = Math.max(maxLength + 2, 12);
         });
-        
+
         // Save the file
         await workbook.xlsx.writeFile(excelFilePath);
-        
+
         console.log('Excel file updated successfully!');
-        
+        console.log(`Total rows in worksheet: ${worksheet.rowCount}`);
+
+        if (fileLocked) {
+            console.warn('⚠️  File was locked during write operation. Close Excel and try again if updates don\'t appear.');
+        }
+
         return { success: true, message: 'Data saved successfully!' };
-        
+
     } catch (error) {
         console.error('Error writing to Excel:', error);
         console.error('Error stack:', error.stack);
-        return { success: false, message: 'Error saving data: ' + error.message };
+
+        let errorMessage = 'Error saving data: ' + error.message;
+        if (fileLocked) {
+            errorMessage += ' (File may be locked by Excel - close Excel and try again)';
+        }
+
+        return { success: false, message: errorMessage };
     }
 }
 
@@ -192,6 +213,11 @@ async function appendToExcel(data) {
 // Routes
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'mayna-diamonds-feedback.html'));
+});
+
+// Admin dashboard route
+app.get('/admin', (req, res) => {
+    res.sendFile(path.join(__dirname, 'admin-dashboard.html'));
 });
 
 // Feedback submission endpoint

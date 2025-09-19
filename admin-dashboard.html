@@ -323,12 +323,16 @@
 
         async function initializeDashboard() {
             try {
+                console.log('Fetching feedback data from backend...');
                 // Fetch feedback data from backend
                 const response = await fetch('/view-feedback');
                 const result = await response.json();
-                
+
+                console.log('Feedback data received:', result);
+
                 if (result.success) {
                     allFeedback = result.data || [];
+                    console.log('Total feedback entries:', allFeedback.length);
                     updateDashboard(allFeedback);
                 } else {
                     throw new Error(result.message || 'Failed to fetch feedback');
@@ -336,7 +340,7 @@
 
             } catch (error) {
                 console.error('Error initializing dashboard:', error);
-                document.getElementById('feedbackList').innerHTML = 
+                document.getElementById('feedbackList').innerHTML =
                     '<div class="no-feedback">Error loading feedback. Please refresh the page.</div>';
             }
         }
@@ -347,12 +351,20 @@
         }
 
         function updateStats(feedbackList) {
-            const today = new Date().toLocaleDateString();
+            // Get today's date in the same format as backend (DD/MM/YYYY)
+            const now = new Date();
+            const today = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`;
+
+            console.log('Today\'s date for comparison:', today);
+            console.log('Sample feedback dates:', feedbackList.slice(0, 3).map(fb => fb['Submission Date']));
+
             const todayFeedback = feedbackList.filter(fb => {
-                // Backend stores date as 'Submission Date' field
+                // Backend stores date as 'Submission Date' field in DD/MM/YYYY format
                 const submissionDate = fb['Submission Date'];
                 return submissionDate === today;
             });
+
+            console.log('Today\'s feedback count:', todayFeedback.length);
 
             // Total feedback
             document.getElementById('totalFeedback').textContent = feedbackList.length;
@@ -365,7 +377,7 @@
                 const rating = fb['Experience Rating'];
                 return rating && !isNaN(parseFloat(rating));
             });
-            const avgRating = ratingsWithValues.length > 0 
+            const avgRating = ratingsWithValues.length > 0
                 ? (ratingsWithValues.reduce((sum, fb) => sum + parseFloat(fb['Experience Rating']), 0) / ratingsWithValues.length).toFixed(1)
                 : '0.0';
             document.getElementById('averageRating').textContent = avgRating;
@@ -373,6 +385,8 @@
             // Planning to buy - using 'Planning to Buy' field from backend
             const planningToBuy = feedbackList.filter(fb => fb['Planning to Buy'] === 'Yes').length;
             document.getElementById('planningToBuy').textContent = planningToBuy;
+
+            console.log('Stats updated - Total:', feedbackList.length, 'Today:', todayFeedback.length, 'Avg Rating:', avgRating, 'Planning to Buy:', planningToBuy);
         }
 
         function displayFeedback(feedbackList) {
